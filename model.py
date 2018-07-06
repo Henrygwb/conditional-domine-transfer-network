@@ -305,13 +305,12 @@ class Solver(object):
                     feed_dict = {model.src_images: src_images, model.y_fills: src_fills,
                                  model.y_labels: src_labels, model.trg_images: trg_images}
                     sess.run(model.d_train_op, feed_dict)
-
-		            #add randomness    
-		            #y_ = np.random.randint(0, 9, (self.batch_size, 1))
-		            #y_label_ = onehot[y_.astype(np.int32)].reshape([self.batch_size, 1, 1, 10])
-		            #y_fill_ = y_label_ * np.ones([self.batch_size, 32, 32, 10])
-		            #feed_dict = {model.src_images: src_images, model.y_fills: y_fill_,
-		            #model.y_labels: y_label_, model.trg_images: trg_images}
+                    #add randomness    
+                    #y_ = np.random.randint(0, 9, (self.batch_size, 1))
+                    #y_label_ = onehot[y_.astype(np.int32)].reshape([self.batch_size, 1, 1, 10])
+                    #y_fill_ = y_label_ * np.ones([self.batch_size, 32, 32, 10])
+                    #feed_dict = {model.src_images: src_images, model.y_fills: y_fill_,
+                    #model.y_labels: y_label_, model.trg_images: trg_images}
 		            
                     sess.run([model.g_train_op], feed_dict)
                     sess.run([model.g_train_op], feed_dict)
