@@ -3,12 +3,8 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2,3"
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
-import pickle
-import os
 import scipy.io
 import scipy.misc
-from PIL import Image
-from tensorflow.examples.tutorials.mnist import input_data
 import argparse
 
 class CS_DTN(object):
@@ -23,15 +19,14 @@ class CS_DTN(object):
 
     def content_extractor(self, images, reuse = False):
         # (batch_size, 32, 32, 1)
-
         #if images.get_shape()[3] == 1:
         #    images = tf.image.grayscale_to_rgb(images)
 
         with tf.variable_scope('content_extractor', reuse = reuse):
             with slim.arg_scope([slim.conv2d], padding = 'SAME', activation_fn = None,
                                 stride = 2, weights_initializer = tf.contrib.layers.xavier_initializer()):
-                with slim.arg_scope([slim.batch_norm], decay = 0.95, center = True, scale = True,
-                                    activation_fn = tf.nn.relu, is_training = (self.mode == 'train' or self.mode == 'pretrain')):
+                with slim.arg_scope([slim.batch_norm], decay = 0.95, center = True,
+                                    scale = True, activation_fn = tf.nn.relu, is_training = (self.mode == 'train' or self.mode == 'pretrain')):
                     net = slim.conv2d(images, 64, [3, 3], scope='conv1') # (batch_size, 16, 16, 128)
                     net = slim.batch_norm(net, scope='bn1')
                     net = slim.conv2d(net, 128, [3, 3], scope='conv2') # (batch_size, 8, 8, 128)
@@ -279,39 +274,34 @@ class Solver(object):
             restorer = tf.train.Saver(variables_to_restore)
             restorer.restore(sess, self.pretrained_model)
             saver = tf.train.Saver()
-	    		
+
             print ('start training..!')
             for step in range(self.train_iter + 1):
-            	for i in range(int(source_images.shape[0] / self.batch_size)):
-		            src_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
+                for i in range(int(source_images.shape[0] / self.batch_size)):
+                    src_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
+                    src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
+                    onehot = np.eye(len(self.cls))
+                    src_labels = onehot[src_labels].reshape(self.batch_size, 1, 1, len(self.cls))
 
-		            src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
-			    
-		            onehot = np.eye(len(self.cls))
-		            src_labels = onehot[src_labels].reshape(self.batch_size, 1, 1, len(self.cls))
+                    if len(self.cls) > 1:
+                        for i, w in zip(self.cls, self.cls_weight):
+                            src_labels[:,:,:,i][np.where(src_labels[:,:,:,i]==1)] = w
 
-		            if len(self.cls) > 1:
-		                for i, w in zip(self.cls, self.cls_weight):
-		                    src_labels[:,:,:,i][np.where(src_labels[:,:,:,i]==1)] = w
-		            
+                    src_fills = src_labels*np.ones([self.batch_size, 32, 32, len(self.cls)])
+                    if len(self.cls) > 1:
+                        for i, w in zip(self.cls, self.cls_weight):
+                            src_fills[:,:,:,i][np.where(src_fills[:,:,:,i]==1)] = w
 
-		            src_fills = src_labels*np.ones([self.batch_size, 32, 32, len(self.cls)])
-		            if len(self.cls) > 1:
-		                for i, w in zip(self.cls, self.cls_weight):
-		                    src_fills[:,:,:,i][np.where(src_fills[:,:,:,i]==1)] = w
-		           
+                    trg_images = target_images[i * self.batch_size:(i + 1) * self.batch_size]
+                    if len(self.cls) == 1:
+                        src_labels = np.zeros((self.batch_size, 1, 1, 1))
+                        src_fills = np.zeros((self.batch_size, 32, 32, 1))
 
-		            trg_images = target_images[i * self.batch_size:(i + 1) * self.batch_size]
-		            if len(self.cls) == 1:
-		                src_labels = np.zeros((self.batch_size, 1, 1, 1))
-		                src_fills = np.zeros((self.batch_size, 32, 32, 1))
+                    feed_dict = {model.src_images: src_images, model.y_fills: src_fills,
+                                 model.y_labels: src_labels, model.trg_images: trg_images}
+                    sess.run(model.d_train_op, feed_dict)
 
-		            feed_dict = {model.src_images: src_images, model.y_fills: src_fills, 
-		                            model.y_labels: src_labels, model.trg_images: trg_images}
-
-		            sess.run(model.d_train_op, feed_dict)
-
-		            """
+                    """
 		            add randomness    
 		            #y_ = np.random.randint(0, 9, (self.batch_size, 1))
 		            #y_label_ = onehot[y_.astype(np.int32)].reshape([self.batch_size, 1, 1, 10])
@@ -320,20 +310,20 @@ class Solver(object):
 		            #model.y_labels: y_label_, model.trg_images: trg_images}
 		            """
 
-		            sess.run([model.g_train_op], feed_dict)
-		            sess.run([model.g_train_op], feed_dict)
-		            sess.run([model.g_train_op], feed_dict)
-		            sess.run([model.g_train_op], feed_dict)
-		            sess.run([model.g_train_op], feed_dict)
-		            sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
+                    sess.run([model.g_train_op], feed_dict)
 
-		            if (step + 1) % 10 == 0:
-		                dl, gl = sess.run([model.d_loss, model.g_loss], feed_dict)
-		                print ('Step: [%d/%d] d_loss: [%.6f] g_loss: [%.6f]' % (step + 1, self.train_iter, dl, gl))
+                    if (step + 1) % 10 == 0:
+                        dl, gl = sess.run([model.d_loss, model.g_loss], feed_dict)
+                        print ('Step: [%d/%d] d_loss: [%.6f] g_loss: [%.6f]' % (step + 1, self.train_iter, dl, gl))
 
-		            if (step + 1) % self.train_iter == 0:
-		                saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step + 1)
-		                print ('model/dtn-%d saved' % (step + 1))
+                    if (step + 1) % self.train_iter == 0:
+                        saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step + 1)
+                        print ('model/dtn-%d saved' % (step + 1))
 
     def eval(self):
         model = self.model
@@ -348,10 +338,9 @@ class Solver(object):
             saver.restore(sess, self.test_model)
 
             print ('start sampling..!')
-            for i in range(12):
-                if i >=10:
-                    break
-		self.batch_size = 100
+            for i in range(len(self.cls)):
+
+                self.batch_size = 100
                 batch_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
                 src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
                 
