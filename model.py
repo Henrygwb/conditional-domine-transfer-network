@@ -6,6 +6,7 @@ import numpy as np
 import scipy.io
 import scipy.misc
 import argparse
+from sklearn.utils import shuffle
 
 class CS_DTN(object):
     """
@@ -120,8 +121,8 @@ class CS_DTN(object):
             self.d_loss = self.d_loss_src + self.d_loss_trg
 
             self.g_loss_fake_images = slim.losses.sigmoid_cross_entropy(self.logits_fake, tf.ones_like(self.logits_fake))
-            self.g_loss_const = tf.reduce_mean(tf.square(self.trg_images - self.fake_images)) * self.const
-            self.g_loss = self.g_loss_fake_images + self.g_loss_const
+            #self.g_loss_const = tf.reduce_mean(tf.square(self.trg_images - self.fake_images)) * self.const
+            self.g_loss = self.g_loss_fake_images #+ self.g_loss_const
 
             self.d_optimizer = tf.train.AdamOptimizer(self.learning_rate)
             self.g_optimizer = tf.train.AdamOptimizer(self.learning_rate)
@@ -207,7 +208,7 @@ class Solver(object):
 
         class_train = np.array(self.cls)[1:]
         for i in class_train:
-            source_images_tmp, source_labels_tmp, target_images_tmp = self.split_class(source_images, source_labels, target_images, target_labels, self.cls[i])
+            source_images_tmp, source_labels_tmp, target_images_tmp = self.split_class(source_images, source_labels, target_images, target_labels, i)
             source_images_train = np.concatenate((source_images_train, source_images_tmp))
             source_labels_train = np.concatenate((source_labels_train, source_labels_tmp))
             target_images_train = np.concatenate((target_images_train, target_images_tmp))
@@ -252,7 +253,7 @@ class Solver(object):
                                                       model.labels: test_labels[rand_idxs]})
                     print ('Step: [%d/%d] loss: [%.6f] train acc: [%.2f] test acc [%.2f]' % (step + 1, self.pretrain_iter, l, acc, test_acc))
 
-                if (step + 1) % 2000 == 0:
+                if (step + 1) % self.pretrain_iter == 0:
                     saver.save(sess, os.path.join(self.model_save_path, 'source_model'), global_step=step + 1)
                     print ('source_model-%d saved..!' % (step + 1))
 
@@ -261,22 +262,23 @@ class Solver(object):
         source_images, source_labels, target_images = self.load_train(self.source_dir, self.target_dir, split='train')
         print np.unique(source_labels)
 
-        onehot = np.eye(len(self.cls))
-        src_labels = onehot[src_labels].reshape(src_labels.shape[0], 1, 1, len(self.cls))
+        onehot = np.zeros((source_labels.shape[0], 1, 1, len(self.cls)))
+        for cls_idx in xrange(len(self.cls)):
+            idx = np.where(source_labels == self.cls[cls_idx])
+            onehot[idx, :, :, cls_idx] = 1
 
         if len(self.cls) > 1:
             for i, w in zip(self.cls, self.cls_weight):
-                src_labels[:,:,:,i][np.where(src_labels[:,:,:,i]==1)] = w
+                onehot[:,:,:,i][np.where(onehot[:,:,:,i]==1)] = w
 
-        src_fills = src_labels*np.ones([src_labels.shape[0], 32, 32, len(self.cls)])
-        if len(self.cls) > 1:
-            for i, w in zip(self.cls, self.cls_weight):
-                src_fills[:,:,:,i][np.where(src_fills[:,:,:,i]==1)] = w
+        source_fills = onehot*np.ones([onehot.shape[0], 32, 32, len(self.cls)])
+
         if len(self.cls) == 1:
-            src_labels = np.zeros((src_labels.shape[0], 1, 1, 1))
-            src_fills = np.zeros((src_labels.shape[0], 32, 32, 1))
-        
-        # build a graph
+            src_labels = np.zeros((source_labels.shape[0], 1, 1, 1))
+            src_fills = np.zeros((source_labels.shape[0], 32, 32, 1))
+
+        source_images, onehot, source_fills, target_images = shuffle(source_images, onehot, source_fills, target_images)
+
         model = self.model
         model.build_model()
 
@@ -295,8 +297,8 @@ class Solver(object):
             for step in range(self.train_iter + 1):
                 for i in range(int(source_images.shape[0] / self.batch_size)):
                     src_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
-                    src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
-                    src_fills = src_fills[i * self.batch_size:(i + 1) * self.batch_size]
+                    src_labels = onehot[i * self.batch_size:(i + 1) * self.batch_size]
+                    src_fills = source_fills[i * self.batch_size:(i + 1) * self.batch_size]
                     trg_images = target_images[i * self.batch_size:(i + 1) * self.batch_size]
  
 
@@ -353,7 +355,6 @@ class Solver(object):
                 if len(self.cls) > 1:
                     for ii, w in zip(self.cls, self.cls_weight):
                         src_labels[:, :, :, ii][np.where(src_labels[:, :, :, ii] == 1)] = w
-                # print src_labels
 
                 if len(self.cls) == 1:
                     src_labels = np.zeros((self.batch_size, 1, 1, 1))
@@ -372,16 +373,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", help="pretrain, train, or eval")
-    #parser.mode = 'train'
-    parser = parser.parse_args()
+    parser.mode = 'train'
+    #parser = parser.parse_args()
     model_save_path= 'model'
     sample_save_path = 'sample'
 
-    model = CS_DTN(mode=parser.mode, learning_rate=0.0003, num_class = 3)
-    solver = Solver(model, batch_size=500, pretrain_iter=2000, train_iter=100, 
+    model = CS_DTN(mode=parser.mode, learning_rate=0.0003, num_class = 2)
+    solver = Solver(model, batch_size=500, pretrain_iter=200, train_iter=100,
                     source_dir='source', target_dir='target', model_save_path=model_save_path,
-                    sample_save_path=sample_save_path, pretrained_model='model/source_model-2000',
-                    cls = [0, 1, 2], cls_weight=[1,1,1], test_model='model/dtn-100', config = tf.ConfigProto())
+                    sample_save_path=sample_save_path, pretrained_model='model/source_model-200',
+                    cls = [0, 1], cls_weight=[1,1], test_model='model/dtn-100', config = tf.ConfigProto())
 
     # create directories if not exist
     if not tf.gfile.Exists(model_save_path):
