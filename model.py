@@ -260,6 +260,22 @@ class Solver(object):
 
         source_images, source_labels, target_images = self.load_train(self.source_dir, self.target_dir, split='train')
         print np.unique(source_labels)
+
+        onehot = np.eye(len(self.cls))
+        src_labels = onehot[src_labels].reshape(src_labels.shape[0], 1, 1, len(self.cls))
+
+        if len(self.cls) > 1:
+            for i, w in zip(self.cls, self.cls_weight):
+                src_labels[:,:,:,i][np.where(src_labels[:,:,:,i]==1)] = w
+
+        src_fills = src_labels*np.ones([src_labels.shape[0], 32, 32, len(self.cls)])
+        if len(self.cls) > 1:
+            for i, w in zip(self.cls, self.cls_weight):
+                src_fills[:,:,:,i][np.where(src_fills[:,:,:,i]==1)] = w
+        if len(self.cls) == 1:
+            src_labels = np.zeros((src_labels.shape[0], 1, 1, 1))
+            src_fills = np.zeros((src_labels.shape[0], 32, 32, 1))
+        
         # build a graph
         model = self.model
         model.build_model()
@@ -280,22 +296,9 @@ class Solver(object):
                 for i in range(int(source_images.shape[0] / self.batch_size)):
                     src_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
                     src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
-                    onehot = np.eye(len(self.cls))
-                    src_labels = onehot[src_labels].reshape(self.batch_size, 1, 1, len(self.cls))
-
-                    if len(self.cls) > 1:
-                        for i, w in zip(self.cls, self.cls_weight):
-                            src_labels[:,:,:,i][np.where(src_labels[:,:,:,i]==1)] = w
-
-                    src_fills = src_labels*np.ones([self.batch_size, 32, 32, len(self.cls)])
-                    if len(self.cls) > 1:
-                        for i, w in zip(self.cls, self.cls_weight):
-                            src_fills[:,:,:,i][np.where(src_fills[:,:,:,i]==1)] = w
-
+                    src_fills = src_fills[i * self.batch_size:(i + 1) * self.batch_size]
                     trg_images = target_images[i * self.batch_size:(i + 1) * self.batch_size]
-                    if len(self.cls) == 1:
-                        src_labels = np.zeros((self.batch_size, 1, 1, 1))
-                        src_fills = np.zeros((self.batch_size, 32, 32, 1))
+ 
 
                     feed_dict = {model.src_images: src_images, model.y_fills: src_fills,
                                  model.y_labels: src_labels, model.trg_images: trg_images}
@@ -317,13 +320,13 @@ class Solver(object):
                     sess.run([model.g_train_op], feed_dict)
                     sess.run([model.g_train_op], feed_dict)
 
-                    if (step + 1) % 10 == 0:
-                        dl, gl = sess.run([model.d_loss, model.g_loss], feed_dict)
-                        print ('Step: [%d/%d] d_loss: [%.6f] g_loss: [%.6f]' % (step + 1, self.train_iter, dl, gl))
+                if (step + 1) % 10 == 0:
+                    dl, gl = sess.run([model.d_loss, model.g_loss], feed_dict)
+                    print ('Step: [%d/%d] d_loss: [%.6f] g_loss: [%.6f]' % (step + 1, self.train_iter, dl, gl))
 
-                    if (step + 1) % self.train_iter == 0:
-                        saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step + 1)
-                        print ('model/dtn-%d saved' % (step + 1))
+                if (step + 1) % self.train_iter == 0:
+                    saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step + 1)
+                    print ('model/dtn-%d saved' % (step + 1))
 
     def eval(self):
         model = self.model
