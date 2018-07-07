@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="2,3"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
@@ -268,8 +268,8 @@ class Solver(object):
             onehot[idx, :, :, cls_idx] = 1
 
         if len(self.cls) > 1:
-            for i, w in zip(self.cls, self.cls_weight):
-                onehot[:,:,:,i][np.where(onehot[:,:,:,i]==1)] = w
+            for idx in xrange(len(self.cls)):
+                onehot[:,:,:,idx][np.where(onehot[:,:,:,idx]==1)] = self.cls_weight[idx]
 
         source_fills = onehot*np.ones([onehot.shape[0], 32, 32, len(self.cls)])
 
@@ -323,7 +323,7 @@ class Solver(object):
                     dl, gl = sess.run([model.d_loss, model.g_loss], feed_dict)
                     print ('Step: [%d/%d] d_loss: [%.6f] g_loss: [%.6f]' % (step + 1, self.train_iter, dl, gl))
 
-                if (step + 1) % self.train_iter == 0:
+                if (step + 1) % (self.train_iter/2) == 0:
                     saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step + 1)
                     print ('model/dtn-%d saved' % (step + 1))
 
@@ -332,6 +332,14 @@ class Solver(object):
         model.build_model()
 
         source_images, source_labels = self.load_source(self.source_dir, 'train')
+	onehot = np.zeros((source_labels.shape[0], 1, 1, len(self.cls)))
+        for cls_idx in xrange(len(self.cls)):
+            idx = np.where(source_labels == self.cls[cls_idx])
+            onehot[idx, :, :, cls_idx] = 1
+
+        if len(self.cls) > 1:
+            for idx in xrange(len(self.cls)):
+                onehot[:,:,:,idx][np.where(onehot[:,:,:,idx]==1)] = self.cls_weight[idx]
 
         with tf.Session(config=self.config) as sess:
             # load trained parameters
@@ -344,15 +352,8 @@ class Solver(object):
 
                 self.batch_size = 100
                 batch_images = source_images[i * self.batch_size:(i + 1) * self.batch_size]
-                src_labels = source_labels[i * self.batch_size:(i + 1) * self.batch_size]
+                src_labels = onehot[i * self.batch_size:(i + 1) * self.batch_size]
                 
-                onehot = np.eye(len(self.cls))
-                src_labels = onehot[src_labels].reshape((self.batch_size, 1, 1, len(self.cls)))
-                
-                if len(self.cls) > 1:
-                    for ii, w in zip(self.cls, self.cls_weight):
-                        src_labels[:, :, :, ii][np.where(src_labels[:, :, :, ii] == 1)] = w
-
                 if len(self.cls) == 1:
                     src_labels = np.zeros((self.batch_size, 1, 1, 1))
 
@@ -370,16 +371,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", help="pretrain, train, or eval")
-    parser.mode = 'train'
-    #parser = parser.parse_args()
+    #parser.mode = 'train'
+    parser = parser.parse_args()
     model_save_path= 'model'
     sample_save_path = 'sample'
 
     model = CS_DTN(mode=parser.mode, learning_rate=0.0003, num_class = 2)
-    solver = Solver(model, batch_size=500, pretrain_iter=200, train_iter=100,
+    solver = Solver(model, batch_size=500, pretrain_iter=200, train_iter=2001,
                     source_dir='source', target_dir='target', model_save_path=model_save_path,
-                    sample_save_path=sample_save_path, pretrained_model='model/source_model-200',
-                    cls = [0, 1], cls_weight=[1,1], test_model='model/dtn-100', config = tf.ConfigProto())
+                    sample_save_path=sample_save_path, pretrained_model='model/source_model-2000',
+                    cls = [1, 2], cls_weight=[1,1], test_model='model/dtn-1000', config = tf.ConfigProto())
 
     # create directories if not exist
     if not tf.gfile.Exists(model_save_path):
