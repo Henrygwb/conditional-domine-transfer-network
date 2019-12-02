@@ -1,2 +1,1 @@
-# captcha_gan 
-  code and results
+# Conditional supervised domine transfer network
